@@ -1,0 +1,10 @@
+SELECT DISTINCT c.class          -- Step 4: 最後選出班級
+FROM class c                     -- Step 1: 從class表開始
+JOIN score s                     -- Step 2: 連結score表
+  ON c.name = s.name             -- 使用name欄位來連結兩表
+WHERE s.score = (                -- Step 3: 過濾條件
+    SELECT score                 
+    FROM score                  
+    ORDER BY score DESC          -- 分數由高到低排序
+    LIMIT 1 OFFSET 1             -- 使用LIMIT,OFFSET 跳過第一名,取第二名
+);
