@@ -1,0 +1,149 @@
+#Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asiayo-deployment
+  namespace: asiayo
+spec:
+  #For high availability, create multiple replicas
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    #Config rollingUpdate stragy to ensure the service won't be offline when update
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: asiayo
+  template:
+    metadata:
+      labels:
+        app: asiayo
+    spec:
+      #Ensure pods are distributed across nodes
+      affinity:
+        podAntiAffinity:  
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - asiayo
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: asiayo-app
+        #Assuming there is a "asisyo-app" image
+        image: asiayo-app:1.0.0
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        #Expect the app have /health api
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: asiayo-storage
+          mountPath: /app/data
+      volumes:
+      - name: asiayo-storage
+        persistentVolumeClaim:
+          claimName: asiayo-pvc
+---
+#Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: asiayo-service
+  namespace: asiayo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    #Align with container port (Assumed to be 8080)
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    #Select pod by label
+    app: asiayo
+---
+#Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: asiayo-ingress
+  namespace: asiayo
+  annotations:
+    #Forces an HTTPS redirect if SSL is available
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    #Allows a maximum of 50 MB for the body of incoming HTTP requests
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    #Use cloudflare-issuer to manage SSL certificate provisioning for this Ingress
+    cert-manager.io/cluster-issuer: "cloudflare-issuer"
+spec:
+  tls:
+  - hosts:
+    - asiayo.com
+    secretName: asiayo-tls
+  rules:
+  - host: asiayo.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: asiayo-service
+            port:
+              number: 80
+  #Use nginx for ingress controller
+  ingressClassName: nginx
+---
+#PV
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: asiayo-pv
+  labels:
+    type: local
+spec:
+  storageClassName: standard
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /mnt/data
+    #This may be fail due to kubernetes known bugs(Initialization problem that NFS server is set up before pod can reach internal DNS)
+    server: nfs-server.default.svc.cluster.local
+---
+#PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: asiayo-pvc
+  namespace: asiayo
+spec:
+  storageClassName: standard
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi

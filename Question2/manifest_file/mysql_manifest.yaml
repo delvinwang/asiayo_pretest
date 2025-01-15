@@ -1,0 +1,62 @@
+#StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: asiayo
+spec:
+  serviceName: mysql
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        #Due to the infrastructure layout, database password is displayed as plain text
+        - name: MYSQL_ROOT_PASSWORD
+          value: root_password
+        - name: MYSQL_REPLICATION_USER
+          value: repl_user
+        - name: MYSQL_REPLICATION_PASSWORD
+          value: repl_password
+        #Use dynamic env variable to decide the pod generated is reader or writer
+        - name: MYSQL_ROLE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: MYSQL_MASTER_HOST
+          value: mysql-0.mysql
+        #Use container command to set pod as reader or writer
+        command:
+        - /bin/sh
+        - -c
+        - |
+          if [[ $(hostname) == "mysql-0" ]]; then
+            echo "Starting MySQL as MASTER";
+            mysqld;
+          else
+            echo "Starting MySQL as REPLICA";
+            mysqld --read_only=1 --server-id=$(hostname | grep -o '[0-9]*');
+          fi
+  #Due to the infrastructure layout, PV/PVC is not created in the manifest file, so the database only store data ephemeral
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: mysql-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
