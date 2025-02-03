@@ -47,7 +47,6 @@ spec:
             echo "Starting MySQL as REPLICA";
             mysqld --read_only=1 --server-id=$(hostname | grep -o '[0-9]*');
           fi
-  #Due to the infrastructure layout, PV/PVC is not created in the manifest file, so the database only store data ephemeral
         volumeMounts:
         - name: mysql-data
           mountPath: /var/lib/mysql
